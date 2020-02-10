@@ -1,5 +1,5 @@
 /*
-    Copyright 2018, Mitch Curtis
+    Copyright 2020, Mitch Curtis
 
     This file is part of Slate.
 
@@ -17,10 +17,10 @@
     along with Slate. If not, see <http://www.gnu.org/licenses/>.
 */
 
-import QtQuick 2.8
-import QtQuick.Layouts 1.3
-import QtQuick.Window 2.2
-import QtQuick.Controls 2.1
+import QtQuick 2.13
+import QtQuick.Layouts 1.13
+import QtQuick.Window 2.13
+import QtQuick.Controls 2.13
 
 import Qt.labs.settings 1.0
 import Qt.labs.platform 1.0 as Platform
@@ -28,18 +28,6 @@ import Qt.labs.platform 1.0 as Platform
 import App 1.0
 
 import "ui" as Ui
-
-/*
-    TODO:
-    - cursor ruler that follows the cursor as it moves to make it easy to
-      line stuff up
-    - fix performance when drawing pixels
-    - fix performance when resizing on Windows
-    - tutorial?
-    - add "lighten/darken current colour" feature with convenient keyboard shortcuts.
-      it could display a fading indicator like the zoom level does, comparing the
-      proposed colour next to the old one. could be a mouse wheel shortcut.
-*/
 
 ApplicationWindow {
     id: window
@@ -49,75 +37,59 @@ ApplicationWindow {
     title: project && project.loaded
         ? ((project.url.toString().length > 0 ? project.displayUrl : "Untitled") + (project.unsavedChanges ? "*" : ""))
         : ""
+    opacity: settings.windowOpacity
     visible: true
 
-//    onActiveFocusItemChanged: print(activeFocusItem)
+//    onActiveFocusItemChanged: print("active focus: " + activeFocusItem + ", parent: "
+//        + (activeFocusItem ? activeFocusItem.parent : null))
 
-    property alias projectManager: projectManager
     property Project project: projectManager.project
-    property int projectType: project ? project.type : 0
+    readonly property int projectType: project && projectManager.ready ? project.type : 0
+    readonly property bool isImageProjectType: projectType === Project.ImageType || projectType === Project.LayeredImageType
     property ImageCanvas canvas: canvasContainer.canvas
     property alias newProjectPopup: newProjectPopup
     property alias openProjectDialog: openProjectDialog
-    property alias saveChangesDialog: discardChangesDialog
-    property int toolTipDelay: 500
-    property int toolTipTimeout: 2000
+    property alias saveChangesDialog: saveChangesDialog
+    property alias saveAsDialog: saveAsDialog
+    property alias moveContentsDialog: moveContentsDialog
+    property int oldWindowVisibility: Window.Windowed
 
     onClosing: {
-        close.accepted = false;
-        doIfChangesDiscarded(function() { Qt.quit() })
+        close.accepted = false
+        saveChangesDialog.doIfChangesSavedOrDiscarded(function() { Qt.quit() })
     }
 
     // If we set the image URL immediately, it can happen before
     // the error popup is ready.
     Component.onCompleted: {
-        contentItem.objectName = "applicationWindowContentItem";
+        contentItem.parent.objectName = "applicationWindowRootItem"
+        contentItem.objectName = "applicationWindowContentItem"
 
         if (settings.loadLastOnStartup && settings.recentFiles.length > 0) {
             loadProject(settings.recentFiles[0])
         } else {
             createNewProject(Project.LayeredImageType)
         }
-
-        window.x = Screen.desktopAvailableWidth / 2 - width / 2
-        window.y = Screen.desktopAvailableHeight / 2 - height / 2
     }
 
-    function doIfChangesDiscarded(actionFunction, skipChangesConfirmationIfNoProject) {
-        if ((skipChangesConfirmationIfNoProject === undefined || skipChangesConfirmationIfNoProject === true) && !project) {
-            // If there's no project open, some features should be able to
-            // be performed immediately, such as Open.
-            actionFunction();
-            return;
+    function saveOrSaveAs() {
+        if (project.url.toString().length > 0) {
+            // Existing project; can save without a dialog.
+            project.save();
+        } else {
+            // New project; need to save as.
+            saveAsDialog.open();
         }
+    }
 
-        if (!project) {
-            // Auto tests can skip this function.
-            return;
+    function toggleFullScreen() {
+        if (window.visibility === Window.FullScreen) {
+            window.visibility = oldWindowVisibility
         }
-
-        if (!project.unsavedChanges) {
-            actionFunction();
-            return;
+        else {
+            oldWindowVisibility = window.visibility
+            window.visibility = Window.FullScreen
         }
-
-        function disconnectSignals() {
-            saveChangesDialog.accepted.disconnect(discardChanges);
-            saveChangesDialog.rejected.disconnect(dontDiscardChanges);
-        }
-
-        function discardChanges() {
-            actionFunction();
-            disconnectSignals();
-        }
-
-        function dontDiscardChanges() {
-            disconnectSignals();
-        }
-
-        saveChangesDialog.accepted.connect(discardChanges);
-        saveChangesDialog.rejected.connect(dontDiscardChanges);
-        saveChangesDialog.open();
     }
 
     Settings {
@@ -125,6 +97,12 @@ ApplicationWindow {
         property alias windowY: window.y
         property alias windowWidth: window.width
         property alias windowHeight: window.height
+        property alias windowVisibility: window.visibility
+    }
+
+    Connections {
+        target: projectManager
+        onCreationFailed: errorPopup.showError(errorMessage)
     }
 
     Connections {
@@ -132,134 +110,181 @@ ApplicationWindow {
         onErrorOccurred: errorPopup.showError(errorMessage)
     }
 
-    ProjectManager {
-        id: projectManager
-        applicationSettings: settings
-        onCreationFailed: errorPopup.showError(errorMessage)
+    Connections {
+        target: canvas
+        onErrorOccurred: errorPopup.showError(errorMessage)
+        onNoteCreationRequested: {
+            noteDialog.currentAction = Ui.NoteDialog.NoteAction.Create
+            noteDialog.newNoteX = canvas.cursorSceneX
+            noteDialog.newNoteY = canvas.cursorSceneY
+            noteDialog.open()
+        }
+        onNoteModificationRequested: {
+            noteDialog.currentAction = Ui.NoteDialog.NoteAction.Modify
+            noteDialog.modifyingNoteIndex = noteIndex
+            noteDialog.open()
+        }
+        onNoteContextMenuRequested: {
+            noteContextMenu.noteIndex = noteIndex
+            noteContextMenu.popup(canvas.cursorX, canvas.cursorY)
+        }
+    }
 
-        function saveOrSaveAs() {
-            if (project.url.toString().length > 0) {
-                project.save();
+    Ui.UiStateSerialisation {
+        project: window.project
+        onReadyToLoad: {
+            // Old project files and image projects don't have UI state.
+            if (project && project.uiState.contains("mainSplitViewState")) {
+                // Restore project state.
+                mainSplitView.restoreState(project.uiState.base64ToBinary(
+                    project.uiState.value("mainSplitViewState")))
+                panelSplitView.restoreState(project.uiState.base64ToBinary(
+                    project.uiState.value("panelSplitViewState")))
             } else {
-                saveAsDialog.open();
+                // We should still restore the default sizes for all other cases, though.
+                // We only need to restore panelSplitView's preferredWidth, as mainSplitView fills.
+                panelSplitView.SplitView.preferredWidth = panelSplitView.defaultPreferredWidth
             }
+        }
+        onReadyToSave: {
+            // Save project state.
+            project.uiState.setValue("mainSplitViewState",
+                project.uiState.binaryToBase64(mainSplitView.saveState()))
+            project.uiState.setValue("panelSplitViewState",
+                project.uiState.binaryToBase64(panelSplitView.saveState()))
         }
     }
 
     Ui.Shortcuts {
         window: window
-        projectManager: window.projectManager
         canvasContainer: canvasContainer
         canvas: window.canvas
+        saveChangesDialog: saveChangesDialog
     }
 
-    Ui.MenuBar {
+    menuBar: Ui.MenuBar {
         id: menuBar
-        projectManager: window.projectManager
         canvas: window.canvas
+        hueSaturationDialog: hueSaturationDialog
+        opacityDialog: opacityDialog
         canvasSizePopup: canvasSizePopup
         imageSizePopup: imageSizePopup
+        moveContentsDialog: moveContentsDialog
+        texturedFillSettingsDialog: texturedFillSettingsDialog
+        aboutDialog: aboutDialog
+        saveChangesDialog: saveChangesDialog
     }
 
     header: Ui.ToolBar {
-        id: iconToolBar
+        id: toolBar
+        objectName: "toolBar"
         project: window.project
         canvas: window.canvas
         canvasSizePopup: canvasSizePopup
         imageSizePopup: imageSizePopup
-
-        Layout.fillWidth: true
     }
 
-    RowLayout {
+    SplitView {
+        id: mainSplitView
+        objectName: "mainSplitView"
         anchors.fill: parent
-        spacing: 0
+        handle: Item {
+            implicitWidth: 4
+        }
+
+        Layout.fillWidth: true
 
         Ui.CanvasContainer {
             id: canvasContainer
             focus: true
 
-            projectManager: window.projectManager
-            checkedToolButton: iconToolBar.toolButtonGroup.checkedButton
+            checkedToolButton: toolBar.toolButtonGroup.checkedButton
 
-            Layout.preferredWidth: window.width / 3
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            SplitView.preferredWidth: window.width / 3
+            SplitView.fillWidth: true
         }
 
-        ColumnLayout {
-            Layout.alignment: Qt.AlignTop
+        SplitView {
+            id: panelSplitView
+            objectName: "panelSplitView"
+            orientation: Qt.Vertical
+            handle: Item {
+                implicitHeight: 4
+            }
+
+            readonly property int defaultPreferredWidth: 240
+
+            SplitView.minimumWidth: 200
+            SplitView.preferredWidth: defaultPreferredWidth
+            SplitView.maximumWidth: window.width / 3
 
             Ui.ColourPanel {
                 id: colourPanel
                 canvas: window.canvas
                 project: window.project
 
-                Layout.minimumHeight: expanded ? header.implicitHeight + 200 : -1
-                Layout.maximumHeight: expanded ? implicitHeight : header.implicitHeight
-                Layout.fillHeight: expanded
+                SplitView.minimumHeight: expanded ? minimumUsefulHeight : undefined
+                SplitView.maximumHeight: expanded ? implicitHeight : header.implicitHeight
+            }
+
+            Ui.SwatchPanel {
+                id: swatchesPanel
+                canvas: window.canvas
+                project: window.project
+
+                SplitView.minimumHeight: expanded ? minimumUsefulHeight : undefined
+                SplitView.preferredHeight: minimumUsefulHeight + 100
+                SplitView.maximumHeight: expanded ? Infinity : header.implicitHeight
             }
 
             Loader {
                 objectName: "tilesetSwatchLoader"
                 active: window.projectType === Project.TilesetType && window.canvas
-                sourceComponent: Ui.TilesetSwatch {
+                visible: active
+                sourceComponent: Ui.TilesetSwatchPanel {
                     id: tilesetSwatch
-                    objectName: "tilesetSwatch"
                     tileCanvas: window.canvas
                     project: window.project
                     // Don't let e.g. the pencil icon go under us.
                     z: canvasContainer.z - 1
                 }
 
-                Layout.preferredWidth: active ? colourPanel.implicitWidth : 0
-                Layout.minimumHeight: active && item.expanded ? item.header.implicitHeight + 300 : -1
-                Layout.maximumHeight: active ? (item.expanded ? -1 : item.header.implicitHeight) : 0
-                Layout.fillHeight: active && item.expanded
+                SplitView.minimumHeight: active && item.expanded ? item.header.implicitHeight : undefined
+                SplitView.maximumHeight: active ? (item.expanded ? Infinity : item.header.implicitHeight) : 0
+                SplitView.fillHeight: active && item.expanded
             }
 
             Loader {
                 objectName: "layersLoader"
                 active: window.projectType === Project.LayeredImageType && window.canvas
+                visible: active
                 sourceComponent: Ui.LayerPanel {
-                    objectName: "layerPanel"
                     layeredImageCanvas: window.canvas
                     project: window.project
                     z: canvasContainer.z - 1
                 }
 
-                Layout.preferredWidth: active ? colourPanel.implicitWidth : 0
-                Layout.minimumHeight: active && item.expanded ? item.header.implicitHeight + item.footer.implicitHeight + 100 : -1
-                Layout.maximumHeight: active ? (item.expanded ? -1 : item.header.implicitHeight) : 0
-                Layout.fillHeight: active && item.expanded
+                SplitView.minimumHeight: active && item.expanded ? item.minimumUsefulHeight : undefined
+                SplitView.maximumHeight: active ? (item.expanded ? Infinity : item.header.implicitHeight) : 0
+                SplitView.fillHeight: active && item.expanded
             }
 
             Ui.AnimationPanel {
                 id: animationPanel
-                visible: window.project && window.project.loaded && window.projectType === Project.LayeredImageType
-                    && window.project.usingAnimation
+                visible: window.project && window.project.loaded && isImageProjectType && window.project.usingAnimation
                 project: visible ? window.project : null
+                canvas: window.canvas
 
-                Layout.preferredWidth: visible ? colourPanel.implicitWidth : 0
-                Layout.minimumHeight: expanded ? header.implicitHeight + 200 : -1
-                Layout.maximumHeight: visible ? (expanded ? -1 : header.implicitHeight) : 0
-                Layout.fillHeight: expanded
+                SplitView.minimumHeight: expanded ? minimumUsefulHeight : undefined
+                SplitView.maximumHeight: visible ? (expanded ? Infinity : header.implicitHeight) : 0
+                SplitView.fillHeight: expanded
             }
         }
     }
 
     readonly property var imageFilters: ["PNG files (*.png)", "BMP files (*.bmp)"]
-    readonly property string imageDefaultSuffix: "png"
     readonly property var layeredImageFilters: ["SLP files (*.slp)"]
-    readonly property string layeredImageDefaultSuffix: "slp"
     readonly property var tilesetFilters: ["STP files (*.stp)"]
-    readonly property string tilesetDefaultSuffix: "stp"
-
-    function defaultSuffixForProjectType(projectType) {
-        return projectType === Project.ImageType ? imageDefaultSuffix
-            : projectType === Project.LayeredImageType ? layeredImageDefaultSuffix
-            : tilesetDefaultSuffix;
-    }
 
     function nameFiltersForProjectType(projectType) {
         return projectType === Project.ImageType ? imageFilters
@@ -271,8 +296,9 @@ ApplicationWindow {
         id: openProjectDialog
         objectName: "openProjectDialog"
         nameFilters: ["All files (*)", "PNG files (*.png)", "BMP files (*.bmp)", "SLP files (*.slp)", "STP files (*.stp)"]
-        defaultSuffix: imageDefaultSuffix
+        defaultSuffix: projectManager.projectExtensionForType(Project.ImageType)
         onAccepted: loadProject(file)
+        folder: (project && project.loaded) ? project.dirUrl : ""
     }
 
     Platform.FileDialog {
@@ -280,7 +306,7 @@ ApplicationWindow {
         objectName: "saveAsDialog"
         fileMode: Platform.FileDialog.SaveFile
         nameFilters: nameFiltersForProjectType(projectType)
-        defaultSuffix: defaultSuffixForProjectType(projectType)
+        defaultSuffix: projectManager.projectExtensionForType(projectType)
         onAccepted: project.saveAs(file)
     }
 
@@ -289,29 +315,24 @@ ApplicationWindow {
         objectName: "exportAsDialog"
         fileMode: Platform.FileDialog.SaveFile
         nameFilters: imageFilters
-        defaultSuffix: imageDefaultSuffix
+        defaultSuffix: projectManager.projectExtensionForType(Project.ImageType)
         onAccepted: project.exportImage(file)
     }
 
     Ui.ErrorPopup {
         id: errorPopup
-        x: parent.width / 2 - width / 2
-        y: parent.height / 2 - height / 2
-        // TODO: shouldn't have to do this, but not even a FocusScope around TileCanvas worked..
-        onVisibleChanged: if (window.canvas) window.canvas.forceActiveFocus()
+        x: Math.round(parent.width - width) / 2
+        y: Math.round(parent.height - height) / 2
     }
 
     Ui.NewProjectPopup {
         id: newProjectPopup
-        x: parent.width / 2 - width / 2
-        // Avoid binding loop that results from using height.
-        // TODO: https://codereview.qt-project.org/#/c/175024/ fixes this
-        y: parent.height / 2 - implicitHeight / 2
+        x: Math.round(parent.width - width) / 2
+        y: Math.round(parent.height - height) / 2
 
         onChoseTilesetProject: newTilesetProjectPopup.open()
         onChoseImageProject: newImageProjectPopup.open()
         onChoseLayeredImageProject: newLayeredImageProjectPopup.open()
-        onRejected: if (window.canvas) window.canvas.forceActiveFocus()
     }
 
     function createNewProject(type) {
@@ -341,66 +362,107 @@ ApplicationWindow {
 
     Ui.NewTilesetProjectPopup {
         id: newTilesetProjectPopup
-        x: parent.width / 2 - width / 2
-        y: parent.height / 2 - height / 2
-        onVisibleChanged: if (window.canvas) window.canvas.forceActiveFocus()
+        x: Math.round(parent.width - width) / 2
+        y: Math.round(parent.height - height) / 2
 
         onAccepted: createNewProject(Project.TilesetType)
     }
 
     Ui.NewImageProjectPopup {
         id: newImageProjectPopup
-        x: parent.width / 2 - width / 2
-        y: parent.height / 2 - height / 2
-        onVisibleChanged: if (window.canvas) window.canvas.forceActiveFocus()
+        objectName: "newImageProjectPopup"
+        x: Math.round(parent.width - width) / 2
+        y: Math.round(parent.height - height) / 2
 
         onAccepted: createNewProject(Project.ImageType)
     }
 
     Ui.NewLayeredImageProjectPopup {
         id: newLayeredImageProjectPopup
-        x: parent.width / 2 - width / 2
-        y: parent.height / 2 - height / 2
-        onVisibleChanged: if (window.canvas) window.canvas.forceActiveFocus()
+        objectName: "newLayeredImageProjectPopup"
+        x: Math.round(parent.width - width) / 2
+        y: Math.round(parent.height - height) / 2
 
         onAccepted: createNewProject(Project.LayeredImageType)
     }
 
     Ui.OptionsDialog {
         id: optionsDialog
-        x: parent.width / 2 - width / 2
-        y: parent.height / 2 - implicitHeight / 2
-        onVisibleChanged: if (window.canvas) window.canvas.forceActiveFocus()
+        x: Math.round(parent.width - width) / 2
+        y: Math.round(parent.height - height) / 2
     }
 
-    Dialog {
-        id: discardChangesDialog
-        objectName: "discardChangesDialog"
-        x: parent.width / 2 - width / 2
-        y: parent.height / 2 - height / 2
-        title: qsTr("Unsaved changes")
-        standardButtons: Dialog.Yes | Dialog.No
-        modal: true
-        onVisibleChanged: if (window.canvas) window.canvas.forceActiveFocus()
+    Ui.SaveChangesDialog {
+        id: saveChangesDialog
+        x: Math.round(parent.width - width) / 2
+        y: Math.round(parent.height - height) / 2
+        project: projectManager.project
+        saveAsDialog: window.saveAsDialog
+    }
 
-        Label {
-            text: qsTr("The action you're about to perform could discard changes.\n\nContinue anyway?")
-        }
+    Ui.HueSaturationDialog {
+        id: hueSaturationDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        project: projectManager.project
+        canvas: window.canvas
+    }
+
+    Ui.OpacityDialog {
+        id: opacityDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        project: projectManager.project
+        canvas: window.canvas
     }
 
     Ui.CanvasSizePopup {
         id: canvasSizePopup
-        x: parent.width / 2 - width / 2
-        y: parent.height / 2 - height / 2
+        parent: Overlay.overlay
+        anchors.centerIn: parent
         project: projectManager.project
-        onVisibleChanged: if (window.canvas) window.canvas.forceActiveFocus()
+        canvas: window.canvas
     }
 
     Ui.ImageSizePopup {
         id: imageSizePopup
-        x: parent.width / 2 - width / 2
-        y: parent.height / 2 - height / 2
+        parent: Overlay.overlay
+        anchors.centerIn: parent
         project: projectManager.project
-        onVisibleChanged: if (window.canvas) window.canvas.forceActiveFocus()
+    }
+
+    Ui.MoveContentsDialog {
+        id: moveContentsDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        project: projectManager.project
+    }
+
+    Ui.TexturedFillSettingsDialog {
+        id: texturedFillSettingsDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        project: projectManager.project
+        canvas: window.canvas
+    }
+
+    Ui.NoteDialog {
+        id: noteDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        project: projectManager.project
+        canvas: window.canvas
+    }
+
+    Ui.NoteContextMenu {
+        id: noteContextMenu
+        canvas: window.canvas
+    }
+
+    Ui.AboutDialog {
+        id: aboutDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
     }
 }
+

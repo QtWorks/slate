@@ -1,8 +1,6 @@
-import QtQuick 2.6
-import QtQuick.Controls 2.1
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 import QtQuick.Layouts 1.3
-
-import PickAWinner 1.0
 
 import App 1.0
 
@@ -21,6 +19,7 @@ GridLayout {
     readonly property var spinBoxTextFromValueFunc: function(value) {
         return (value / spinBoxFactor).toFixed(2);
     }
+    readonly property int minimumUsefulHeight: hexColourRowLayout.implicitHeight// + pickerRowLayout.Layout.topMargin
 
     HexColourRowLayout {
         id: hexColourRowLayout
@@ -30,6 +29,7 @@ GridLayout {
     }
 
     RowLayout {
+        id: pickerRowLayout
         Layout.columnSpan: 2
         Layout.topMargin: 8
         Layout.bottomMargin: 8
@@ -61,9 +61,8 @@ GridLayout {
             objectName: "saturationLightnessPicker"
             implicitWidth: 156
             implicitHeight: 156
-            focusPolicy: Qt.NoFocus
             hue: hueSlider.hue
-            alpha: transparencySlider.value
+            alpha: opacitySlider.value
 
             function updateOurColour() {
                 saturationLightnessPicker.color = canvas[hexColourRowLayout.colourSelector.currentPenPropertyName];
@@ -94,6 +93,8 @@ GridLayout {
 
         ToolTip.visible: hovered
         ToolTip.text: qsTr("Opacity")
+        ToolTip.delay: UiConstants.toolTipDelay
+        ToolTip.timeout: UiConstants.toolTipTimeout
 
         background: Image {
             source: "qrc:/images/opacity.png"
@@ -101,8 +102,8 @@ GridLayout {
     }
 
     Slider {
-        id: transparencySlider
-        objectName: "transparencySlider"
+        id: opacitySlider
+        objectName: "opacitySlider"
         value: canvas ? canvas[hexColourRowLayout.colourSelector.currentPenPropertyName].a : 1
         focusPolicy: Qt.NoFocus
 
@@ -111,12 +112,12 @@ GridLayout {
 
         property bool ignoreChanges: false
 
-        onValueChanged: {
+        onMoved: {
             if (!canvas)
                 return;
 
             ignoreChanges = true;
-            canvas[hexColourRowLayout.colourSelector.currentPenPropertyName].a = transparencySlider.value;
+            canvas[hexColourRowLayout.colourSelector.currentPenPropertyName].a = opacitySlider.value;
             ignoreChanges = false;
         }
 
@@ -124,26 +125,32 @@ GridLayout {
             if (ignoreChanges)
                 return;
 
-            transparencySlider.value = canvas[hexColourRowLayout.colourSelector.currentPenPropertyName].a;
+            opacitySlider.value = canvas[hexColourRowLayout.colourSelector.currentPenPropertyName].a;
         }
 
         Connections {
             target: hexColourRowLayout.colourSelector
             onCurrentPenNameChanged: {
-                transparencySlider.ignoreChanges = true;
-                transparencySlider.updateOurValue()
-                transparencySlider.ignoreChanges = false;
+                opacitySlider.ignoreChanges = true;
+                opacitySlider.updateOurValue()
+                opacitySlider.ignoreChanges = false;
             }
         }
 
         Connections {
             target: canvas
-            onPenForegroundColourChanged: transparencySlider.updateOurValue()
-            onPenBackgroundColourChanged: transparencySlider.updateOurValue()
+            onPenForegroundColourChanged: opacitySlider.updateOurValue()
+            onPenBackgroundColourChanged: opacitySlider.updateOurValue()
+        }
+
+        ToolTip {
+            parent: opacitySlider.handle
+            visible: opacitySlider.hovered || opacitySlider.pressed
+            text: (opacitySlider.valueAt(opacitySlider.position) * 100).toFixed(1) + "%"
         }
     }
 
-    MenuSeparator {
+    Ui.VerticalSeparator {
         topPadding: 0
         bottomPadding: 0
 
@@ -164,6 +171,8 @@ GridLayout {
 
         ToolTip.visible: hovered
         ToolTip.text: qsTr("Lightness")
+        ToolTip.delay: UiConstants.toolTipDelay
+        ToolTip.timeout: UiConstants.toolTipTimeout
     }
 
     RowLayout {
@@ -181,8 +190,8 @@ GridLayout {
 
             ToolTip.text: qsTr("Darken the %1 colour").arg(hexColourRowLayout.colourSelector.currentPenName)
             ToolTip.visible: hovered
-            ToolTip.delay: toolTipDelay
-            ToolTip.timeout: toolTipTimeout
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
 
             onClicked: saturationLightnessPicker.decreaseLightness()
         }
@@ -199,14 +208,14 @@ GridLayout {
 
             ToolTip.text: qsTr("Lighten the %1 colour").arg(hexColourRowLayout.colourSelector.currentPenName)
             ToolTip.visible: hovered
-            ToolTip.delay: toolTipDelay
-            ToolTip.timeout: toolTipTimeout
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
 
             onClicked: saturationLightnessPicker.increaseLightness()
         }
     }
 
-    MenuSeparator {
+    Ui.VerticalSeparator {
         topPadding: 0
         bottomPadding: 0
 
@@ -223,10 +232,12 @@ GridLayout {
 
         ToolTip.visible: hovered
         ToolTip.text: qsTr("Saturation")
+        ToolTip.delay: UiConstants.toolTipDelay
+        ToolTip.timeout: UiConstants.toolTipTimeout
 
         background: Rectangle {
             gradient: Gradient {
-                GradientStop { position: 0; color: Ui.CanvasColours.focusColour }
+                GradientStop { position: 0; color: Ui.Theme.focusColour }
                 GradientStop { position: 1; color: "#ccc" }
             }
         }
@@ -243,10 +254,11 @@ GridLayout {
             Layout.maximumWidth: implicitHeight
             Layout.fillWidth: true
 
+            //: Desaturate the foreground/background colour.
             ToolTip.text: qsTr("Desaturate the %1 colour").arg(hexColourRowLayout.colourSelector.currentPenName)
             ToolTip.visible: hovered
-            ToolTip.delay: toolTipDelay
-            ToolTip.timeout: toolTipTimeout
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
 
             onClicked: saturationLightnessPicker.decreaseSaturation()
         }
@@ -261,10 +273,11 @@ GridLayout {
             Layout.maximumWidth: implicitHeight
             Layout.fillWidth: true
 
+            //: Saturate the foreground/background colour.
             ToolTip.text: qsTr("Saturate the %1 colour").arg(hexColourRowLayout.colourSelector.currentPenName)
             ToolTip.visible: hovered
-            ToolTip.delay: toolTipDelay
-            ToolTip.timeout: toolTipTimeout
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
 
             onClicked: saturationLightnessPicker.increaseSaturation()
         }

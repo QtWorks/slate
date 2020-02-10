@@ -1,5 +1,5 @@
 /*
-    Copyright 2016, Mitch Curtis
+    Copyright 2020, Mitch Curtis
 
     This file is part of Slate.
 
@@ -25,21 +25,29 @@
 #include <QtQml>
 
 #include "applicationsettings.h"
+#include "projectmanager.h"
 
 class Application
 {
 public:
     Application(int &argc, char **argv, const QString &applicationName);
+    ~Application();
 
     int run();
 
     ApplicationSettings *settings() const;
     QQmlApplicationEngine *qmlEngine() const;
+    ProjectManager *projectManager();
 
 private:
+    void registerQmlTypes();
+    void addFonts();
+    void installTranslators();
+
     QScopedPointer<QGuiApplication> mApplication;
     QScopedPointer<ApplicationSettings> mSettings;
     QScopedPointer<QQmlApplicationEngine> mEngine;
+    ProjectManager mProjectManager;
 };
 
 #endif // APPLICATION_H

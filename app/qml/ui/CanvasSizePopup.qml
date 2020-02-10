@@ -1,28 +1,51 @@
-import QtQuick 2.6
+/*
+    Copyright 2020, Mitch Curtis
+
+    This file is part of Slate.
+
+    Slate is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Slate is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Slate. If not, see <http://www.gnu.org/licenses/>.
+*/
+
+import QtQuick 2.12
 import QtQuick.Layouts 1.1
-import QtQuick.Controls 2.3
+import QtQuick.Controls 2.12
 
 import App 1.0
 
 Dialog {
-    id: popup
+    id: root
     objectName: "canvasSizePopup"
     title: qsTr("Choose a size for the canvas")
     modal: true
     dim: false
     focus: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnReleaseOutside
 
     property Project project
+    property ImageCanvas canvas
     readonly property bool isTilesetProject: project && project.type === Project.TilesetType
 
-    onVisibleChanged: {
-        if (visible && project) {
-            widthSpinBox.value = project.size.width;
-            heightSpinBox.value = project.size.height;
-            widthSpinBox.contentItem.forceActiveFocus();
+    onAboutToShow: {
+        if (project) {
+            widthSpinBox.value = project.size.width
+            heightSpinBox.value = project.size.height
+            widthSpinBox.contentItem.forceActiveFocus()
         }
     }
+
+    onClosed: canvas.forceActiveFocus()
+
+    onAccepted: project.size = Qt.size(widthSpinBox.value, heightSpinBox.value)
 
     contentItem: ColumnLayout {
         Item {
@@ -44,10 +67,15 @@ Dialog {
                 editable: true
                 stepSize: 1
 
-                ToolTip.text: isTilesetProject ? tilesetText : imageText
-
                 readonly property string tilesetText: qsTr("Number of horizontal tiles")
                 readonly property string imageText: qsTr("Canvas width in pixels")
+
+                ToolTip.text: isTilesetProject ? tilesetText : imageText
+                ToolTip.visible: hovered
+                ToolTip.delay: UiConstants.toolTipDelay
+                ToolTip.timeout: UiConstants.toolTipTimeout
+
+                Keys.onReturnPressed: root.accept()
             }
             Label {
                 text: qsTr("Canvas height")
@@ -61,10 +89,15 @@ Dialog {
                 editable: true
                 stepSize: 1
 
-                ToolTip.text: isTilesetProject ? tilesetText : imageText
-
                 readonly property string tilesetText: qsTr("Number of vertical tiles")
                 readonly property string imageText: qsTr("Canvas height in pixels")
+
+                ToolTip.text: isTilesetProject ? tilesetText : imageText
+                ToolTip.visible: hovered
+                ToolTip.delay: UiConstants.toolTipDelay
+                ToolTip.timeout: UiConstants.toolTipTimeout
+
+                Keys.onReturnPressed: root.accept()
             }
 
             Item {
@@ -76,23 +109,19 @@ Dialog {
 
     footer: DialogButtonBox {
         Button {
+            id: okButton
             objectName: "canvasSizePopupOkButton"
-            text: "OK"
+            text: qsTr("OK")
 
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-
-            onClicked: {
-                project.size = Qt.size(widthSpinBox.value, heightSpinBox.value);
-                popup.visible = false;
-            }
         }
         Button {
             objectName: "canvasSizePopupCancelButton"
-            text: "Cancel"
+            text: qsTr("Cancel")
 
-            DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
-
-            onClicked: popup.visible = false
+            // https://bugreports.qt.io/browse/QTBUG-67168
+            // TODO: replace this with DestructiveRole when it works (closes dialog)
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
         }
     }
 }

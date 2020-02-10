@@ -1,5 +1,5 @@
-import QtQuick 2.6
-import QtQuick.Controls 2.0
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 import QtQuick.Layouts 1.3
 
 Button {
@@ -7,11 +7,15 @@ Button {
     checkable: true
     hoverEnabled: true
     focusPolicy: Qt.NoFocus
+    topInset: 0
+    bottomInset: 0
 
     property alias color: rect.color
 
     background: Rectangle {
         id: rect
+        implicitWidth: 24
+        implicitHeight: 24
 
         Rectangle {
             anchors.fill: parent

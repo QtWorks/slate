@@ -1,5 +1,26 @@
-import QtQuick 2.6
-import QtQuick.Controls 2.1
+/*
+    Copyright 2020, Mitch Curtis
+
+    This file is part of Slate.
+
+    Slate is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Slate is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Slate. If not, see <http://www.gnu.org/licenses/>.
+*/
+
+import QtQuick 2.12
+import QtQuick.Controls 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Window 2.12
 
 import App 1.0
 
@@ -7,68 +28,57 @@ import "." as Ui
 
 ToolBar {
     id: root
-    objectName: "iconToolBar"
+    objectName: "toolBar"
 
     property Project project
-    property int projectType: project ? project.type : 0
-    property bool isTilesetProject: projectType === Project.TilesetType
     property ImageCanvas canvas
-    property Popup canvasSizePopup
-    property Popup imageSizePopup
+    property T.Popup canvasSizePopup
+    property T.Popup imageSizePopup
 
     property alias toolButtonGroup: toolButtonGroup
 
-    function switchTool(tool) {
-        root.ignoreToolChanges = true;
-        canvas.tool = tool;
-        root.ignoreToolChanges = false;
-    }
-
-    // TODO: figure out a nicer solution than this.
-    property bool ignoreToolChanges: false
+    readonly property int projectType: project ? project.type : 0
+    readonly property bool isTilesetProject: projectType === Project.TilesetType
+    readonly property bool isImageProject: projectType === Project.ImageType || projectType === Project.LayeredImageType
+    readonly property bool projectLoaded: canvas && project && project.loaded
 
     Connections {
         target: canvas
         onToolChanged: {
-            if (root.ignoreToolChanges)
-                return;
-
             switch (canvas.tool) {
-            case TileCanvas.PenTool:
-                toolButtonGroup.checkedButton = penToolButton;
-                break;
-            case TileCanvas.EyeDropperTool:
-                toolButtonGroup.checkedButton = eyeDropperToolButton;
-                break;
-            case TileCanvas.EraserTool:
-                toolButtonGroup.checkedButton = eraserToolButton;
-                break;
-            case TileCanvas.FillTool:
-                toolButtonGroup.checkedButton = fillToolButton;
-                break;
-            case TileCanvas.SelectionTool:
-                toolButtonGroup.checkedButton = selectionToolButton;
-                break;
-            case TileCanvas.CropTool:
-                toolButtonGroup.checkedButton = cropToolButton;
-                break;
+            case ImageCanvas.PenTool:
+                toolButtonGroup.checkedButton = penToolButton
+                break
+            case ImageCanvas.EyeDropperTool:
+                toolButtonGroup.checkedButton = eyeDropperToolButton
+                break
+            case ImageCanvas.EraserTool:
+                toolButtonGroup.checkedButton = eraserToolButton
+                break
+            case ImageCanvas.FillTool:
+            case ImageCanvas.TexturedFillTool:
+                toolButtonGroup.checkedButton = fillToolButton
+                break
+            case ImageCanvas.SelectionTool:
+                toolButtonGroup.checkedButton = selectionToolButton
+                break
+            case ImageCanvas.NoteTool:
+                toolButtonGroup.checkedButton = noteToolButton
+                break
             }
         }
     }
 
     Row {
         id: toolbarRow
-        enabled: canvas
         anchors.fill: parent
         // Make sure that we don't end up on a sub-pixel position.
         anchors.leftMargin: Math.round(toolSeparator.implicitWidth / 2)
 
-        ToolButton {
-            id: canvasSizeButton
-            objectName: "canvasSizeButton"
-            enabled: project && project.loaded
-            hoverEnabled: true
-            focusPolicy: Qt.NoFocus
+        Ui.ToolButton {
+            id: canvasSizeToolButton
+            objectName: "canvasSizeToolButton"
+            enabled: projectLoaded
 
             icon.source: "qrc:/images/change-canvas-size.png"
 
@@ -78,12 +88,10 @@ ToolBar {
             onClicked: canvasSizePopup.open()
         }
 
-        ToolButton {
-            id: imageSizeButton
-            objectName: "imageSizeButton"
-            enabled: project && project.loaded && !isTilesetProject
-            hoverEnabled: true
-            focusPolicy: Qt.NoFocus
+        Ui.ToolButton {
+            id: imageSizeToolButton
+            objectName: "imageSizeToolButton"
+            enabled: projectLoaded && !isTilesetProject
 
             icon.source: "qrc:/images/change-image-size.png"
 
@@ -93,31 +101,41 @@ ToolBar {
             onClicked: imageSizePopup.open()
         }
 
+        Ui.ToolButton {
+            id: cropToSelectionToolButton
+            objectName: "cropToSelectionToolButton"
+            enabled: projectLoaded && !isTilesetProject && canvas.hasSelection
+
+            icon.source: "qrc:/images/crop-to-selection.png"
+
+            ToolTip.text: qsTr("Crop the image to the current selection")
+            ToolTip.visible: hovered
+
+            onClicked: project.crop(canvas.selectionArea)
+        }
+
         ToolSeparator {}
 
         Row {
+            height: parent.height
             spacing: 5
 
             Ui.IconToolButton {
-                objectName: "undoButton"
+                objectName: "undoToolButton"
                 text: "\uf0e2"
-                enabled: project && project.undoStack.canUndo
-                hoverEnabled: true
+                enabled: projectLoaded && (project.undoStack.canUndo || canvas.hasModifiedSelection)
 
                 ToolTip.text: qsTr("Undo the last canvas operation")
-                ToolTip.visible: hovered
 
-                onClicked: project.undoStack.undo()
+                onClicked: canvas.undo()
             }
 
             Ui.IconToolButton {
-                objectName: "redoButton"
+                objectName: "redoToolButton"
                 text: "\uf01e"
-                enabled: project && project.undoStack.canRedo
-                hoverEnabled: true
+                enabled: projectLoaded && project.undoStack.canRedo
 
                 ToolTip.text: qsTr("Redo the last undone canvas operation")
-                ToolTip.visible: hovered
 
                 onClicked: project.undoStack.redo()
             }
@@ -129,20 +147,14 @@ ToolBar {
             id: modeToolButton
             objectName: "modeToolButton"
             text: "\uf044"
-            checked: canvas && canvas.mode === TileCanvas.TileMode
+            checked: projectLoaded && canvas.mode === TileCanvas.TileMode
             checkable: true
-            hoverEnabled: true
-            enabled: canvas && projectType === Project.TilesetType
+            enabled: projectLoaded && projectType === Project.TilesetType
             visible: enabled
 
             ToolTip.text: qsTr("Operate on either pixels or whole tiles")
-            ToolTip.visible: hovered
 
-            onClicked: {
-                root.ignoreToolChanges = true;
-                canvas.mode = checked ? TileCanvas.TileMode : TileCanvas.PixelMode;
-                root.ignoreToolChanges = false;
-            }
+            onClicked: canvas.mode = checked ? TileCanvas.TileMode : TileCanvas.PixelMode
         }
 
         ToolSeparator {
@@ -151,12 +163,13 @@ ToolBar {
 
         ButtonGroup {
             id: toolButtonGroup
-            objectName: "iconToolBarButtonGroup"
+            objectName: "toolBarButtonGroup"
             buttons: toolLayout.children
         }
 
         Row {
             id: toolLayout
+            height: parent.height
             spacing: 5
 
             Ui.IconToolButton {
@@ -164,12 +177,11 @@ ToolBar {
                 objectName: "penToolButton"
                 text: "\uf040"
                 checked: true
-                hoverEnabled: true
+                enabled: projectLoaded
 
                 ToolTip.text: qsTr("Draw pixels%1 on the canvas").arg(isTilesetProject ? qsTr(" or tiles") : "")
-                ToolTip.visible: hovered
 
-                onClicked: switchTool(ImageCanvas.PenTool)
+                onClicked: canvas.tool = ImageCanvas.PenTool
             }
 
             Ui.IconToolButton {
@@ -177,12 +189,11 @@ ToolBar {
                 objectName: "eyeDropperToolButton"
                 text: "\uf1fb"
                 checkable: true
-                hoverEnabled: true
+                enabled: projectLoaded
 
-                ToolTip.text: qsTr("Select colours%1 from the canvas").arg(isTilesetProject ? qsTr(" or tiles") : "")
-                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Pick colours%1 from the canvas").arg(isTilesetProject ? qsTr(" or tiles") : "")
 
-                onClicked: switchTool(ImageCanvas.EyeDropperTool)
+                onClicked: canvas.tool = ImageCanvas.EyeDropperTool
             }
 
             Ui.IconToolButton {
@@ -190,95 +201,86 @@ ToolBar {
                 objectName: "eraserToolButton"
                 text: "\uf12d"
                 checkable: true
-                hoverEnabled: true
+                enabled: projectLoaded
 
                 ToolTip.text: qsTr("Erase pixels%1 from the canvas").arg(isTilesetProject ? qsTr(" or tiles") : "")
-                ToolTip.visible: hovered
 
-                onClicked: switchTool(ImageCanvas.EraserTool)
+                onClicked: canvas.tool = ImageCanvas.EraserTool
             }
 
-            Ui.IconToolButton {
+            Ui.ToolButton {
                 id: fillToolButton
                 objectName: "fillToolButton"
-                text: "\uf0c3"
                 checkable: true
-                hoverEnabled: true
+                enabled: projectLoaded
 
-                ToolTip.text: isTilesetProject
-                    ? qsTr("Fill a contiguous area with pixels or tiles")
-                    : qsTr("Fill a contiguous area with pixels.\nHold Shift to fill all pixels matching the target colour.")
-                ToolTip.visible: hovered
+                readonly property bool regularFill: canvas && canvas.lastFillToolUsed === ImageCanvas.FillTool
+                readonly property string imageProjectToolTipText:
+                    qsTr("Fill a contiguous area with %1pixels.\nHold Shift to fill all pixels matching the target colour.")
+                        .arg(!regularFill ? "semi-randomised " : "")
 
-                onClicked: switchTool(ImageCanvas.FillTool)
+                icon.source: regularFill ? "qrc:/images/fill.png" : "qrc:/images/textured-fill.png"
+
+                ToolTip.text: isTilesetProject ? qsTr("Fill a contiguous area with pixels or tiles") : imageProjectToolTipText
+
+                onClicked: canvas.tool = canvas.lastFillToolUsed
+                onPressAndHold: if (!isTilesetProject) fillMenu.open()
+                // TODO: respond to right clicks when https://bugreports.qt.io/browse/QTBUG-67331 is implemented
+
+                ToolButtonMenuIndicator {
+                    color: fillToolButton.icon.color
+                    anchors.right: parent.contentItem.right
+                    anchors.bottom: parent.contentItem.bottom
+                    anchors.margins: 6
+                    visible: !isTilesetProject
+                }
+
+                FillToolMenu {
+                    id: fillMenu
+                    y: fillToolButton.height
+                    canvas: root.canvas
+                }
             }
 
-            ToolButton {
+            Ui.ToolButton {
                 id: selectionToolButton
                 objectName: "selectionToolButton"
                 checkable: true
-                hoverEnabled: true
-                focusPolicy: Qt.NoFocus
-                visible: projectType === Project.ImageType || projectType === Project.LayeredImageType
-
+                visible: isImageProject
+                enabled: projectLoaded
                 icon.source: "qrc:/images/selection.png"
 
                 ToolTip.text: qsTr("Select pixels within an area and move them")
-                ToolTip.visible: hovered
 
-                onClicked: switchTool(ImageCanvas.SelectionTool)
+                onClicked: canvas.tool = ImageCanvas.SelectionTool
             }
 
-            Ui.IconToolButton {
-                id: cropToolButton
-                objectName: "cropToolButton"
-                text: "\uf125"
+            Ui.ToolButton {
+                id: noteToolButton
+                objectName: "noteToolButton"
                 checkable: true
-                hoverEnabled: true
-                visible: false // TODO: implement crop
+                visible: isImageProject
+                enabled: projectLoaded
+                icon.source: "qrc:/images/note.png"
 
-                ToolTip.text: qsTr("Crop the canvas")
-                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Add and edit notes on the canvas")
 
-                onClicked: switchTool(ImageCanvas.CropTool)
+                onClicked: canvas.tool = ImageCanvas.NoteTool
             }
 
             ToolSeparator {}
         }
 
-        Ui.IconToolButton {
+        Ui.ToolButton {
             id: toolSizeButton
             objectName: "toolSizeButton"
-            hoverEnabled: true
+            enabled: projectLoaded
+            icon.source: "qrc:/images/change-tool-size.png"
 
             ToolTip.text: qsTr("Change the size of drawing tools")
             ToolTip.visible: hovered && !toolSizeSliderPopup.visible
 
             onClicked: toolSizeSliderPopup.visible = !toolSizeSliderPopup.visible
-
-            Item {
-                objectName: "toolSizeButtonIcon"
-                width: 12
-                height: 12
-                anchors.centerIn: parent
-
-                Ui.IconRectangle {
-                    width: parent.width
-                    height: 1
-                }
-
-                Ui.IconRectangle {
-                    y: 4
-                    width: parent.width
-                    height: 2
-                }
-
-                Ui.IconRectangle {
-                    y: 9
-                    width: parent.width
-                    height: 3
-                }
-            }
 
             ToolSizePopup {
                 id: toolSizeSliderPopup
@@ -288,8 +290,219 @@ ToolBar {
             }
         }
 
+        Ui.ToolButton {
+            id: toolShapeButton
+            objectName: "toolShapeButton"
+            enabled: projectLoaded
+
+            readonly property bool squareShape: canvas && canvas.toolShape === ImageCanvas.SquareToolShape
+            icon.source: squareShape ? "qrc:/images/square-tool-shape.png" : "qrc:/images/circle-tool-shape.png"
+
+            ToolTip.text: qsTr("Choose brush shape")
+
+            onClicked: toolShapeMenu.visible = !toolShapeMenu.visible
+
+            ToolButtonMenuIndicator {
+                color: toolShapeButton.icon.color
+                anchors.right: parent.contentItem.right
+                anchors.bottom: parent.contentItem.bottom
+                anchors.margins: 6
+            }
+
+            Menu {
+                id: toolShapeMenu
+                objectName: "toolShapeMenu"
+                y: toolShapeButton.height
+                width: 260
+
+                MenuItem {
+                    objectName: "squareToolShapeMenuItem"
+                    text: qsTr("Square")
+                    icon.source: "qrc:/images/square-tool-shape.png"
+                    autoExclusive: true
+                    checkable: true
+                    checked: canvas && canvas.toolShape === ImageCanvas.SquareToolShape
+                    onTriggered: canvas.toolShape = ImageCanvas.SquareToolShape
+                }
+                MenuItem {
+                    objectName: "circleToolShapeMenuItem"
+                    text: qsTr("Circle")
+                    icon.source: "qrc:/images/circle-tool-shape.png"
+                    autoExclusive: true
+                    checkable: true
+                    checked: canvas && canvas.toolShape === ImageCanvas.CircleToolShape
+                    onTriggered: canvas.toolShape = ImageCanvas.CircleToolShape
+                }
+            }
+        }
+
         ToolSeparator {
             id: toolSeparator
+            height: parent.height
+        }
+
+        Row {
+            id: transformLayout
+            height: parent.height
+            spacing: 5
+            visible: projectType === Project.ImageType || projectType === Project.LayeredImageType
+            enabled: projectLoaded
+
+            Ui.ToolButton {
+                id: rotate90CcwToolButton
+                objectName: "rotate90CcwToolButton"
+                enabled: isImageProject && canvas && canvas.hasSelection
+                icon.source: "qrc:/images/rotate-90-ccw.png"
+
+                ToolTip.text: qsTr("Rotate the selection by 90 degrees counter-clockwise")
+
+                onClicked: canvas.rotateSelection(-90)
+            }
+
+            Ui.ToolButton {
+                id: rotate90CwToolButton
+                objectName: "rotate90CwToolButton"
+                enabled: isImageProject && canvas && canvas.hasSelection
+                icon.source: "qrc:/images/rotate-90-cw.png"
+
+                ToolTip.text: qsTr("Rotate the selection by 90 degrees clockwise")
+
+                onClicked: canvas.rotateSelection(90)
+            }
+
+            Ui.ToolButton {
+                id: flipHorizontallyToolButton
+                objectName: "flipHorizontallyToolButton"
+                enabled: isImageProject && canvas && canvas.hasSelection
+                icon.source: "qrc:/images/flip-horizontally.png"
+
+                ToolTip.text: qsTr("Flip the selection horizontally")
+
+                onClicked: canvas.flipSelection(Qt.Horizontal)
+            }
+
+            Ui.ToolButton {
+                id: flipVerticallyToolButton
+                objectName: "flipVerticallyToolButton"
+                enabled: isImageProject && canvas && canvas.hasSelection
+                icon.source: "qrc:/images/flip-vertically.png"
+
+                ToolTip.text: qsTr("Flip the selection vertically")
+
+                onClicked: canvas.flipSelection(Qt.Vertical)
+            }
+
+            ToolSeparator {
+                height: parent.height
+            }
+        }
+
+        Row {
+            id: viewLayout
+            height: parent.height
+            enabled: projectLoaded
+            spacing: 5
+
+            Ui.ToolButton {
+                objectName: "showRulersToolButton"
+                checkable: true
+                checked: canvas && canvas.rulersVisible
+                icon.source: "qrc:/images/show-rulers.png"
+
+                ToolTip.text: qsTr("Show rulers")
+
+                onClicked: canvas.rulersVisible = checked
+            }
+
+            Ui.ToolButton {
+                objectName: "showGuidesToolButton"
+                checkable: true
+                checked: canvas && canvas.guidesVisible
+                icon.source: "qrc:/images/show-guides.png"
+
+                ToolTip.text: qsTr("Show guides")
+
+                onClicked: canvas.guidesVisible = checked
+            }
+
+            Ui.ToolButton {
+                objectName: "lockGuidesToolButton"
+                checkable: true
+                checked: canvas && canvas.guidesLocked
+                icon.source: "qrc:/images/lock-guides.png"
+
+                ToolTip.text: qsTr("Lock guides")
+
+                onClicked: canvas.guidesLocked = checked
+            }
+        }
+
+        ToolSeparator {
+            height: parent.height
+            visible: isImageProject
+        }
+
+        Ui.ToolButton {
+            objectName: "showNotesToolButton"
+            checkable: true
+            checked: canvas && canvas.notesVisible
+            enabled: projectLoaded
+            icon.source: "qrc:/images/show-notes.png"
+            visible: isImageProject
+
+            ToolTip.text: qsTr("Show notes")
+
+            onClicked: canvas.notesVisible = checked
+        }
+
+        ToolSeparator {
+            height: parent.height
+        }
+
+        Row {
+            id: viewSplitscreenLayout
+            height: parent.height
+            enabled: projectLoaded
+            spacing: 5
+
+            Ui.ToolButton {
+                objectName: "splitScreenToolButton"
+                checkable: true
+                checked: canvas && canvas.splitScreen
+                icon.source: "qrc:/images/splitscreen.png"
+
+                ToolTip.text: qsTr("Split Screen")
+
+                onClicked: canvas.splitScreen = checked
+            }
+
+            Ui.ToolButton {
+                objectName: "lockSplitterToolButton"
+                checkable: true
+                checked: canvas && !canvas.splitter.enabled
+                enabled: canvas && canvas.splitScreen
+                icon.source: "qrc:/images/lock-splitter.png"
+
+                ToolTip.text: qsTr("Lock Splitter")
+
+                onClicked: canvas.splitter.enabled = !checked
+            }
+        }
+
+        ToolSeparator {
+            height: parent.height
+        }
+
+        Ui.IconToolButton {
+            id: fullScreenToolButton
+            objectName: "fullScreenToolButton"
+            text: "\uF108"
+            checkable: true
+            checked: window.visibility === Window.FullScreen
+
+            ToolTip.text: qsTr("Toggle fullscreen window")
+
+            onClicked: toggleFullScreen()
         }
     }
 }

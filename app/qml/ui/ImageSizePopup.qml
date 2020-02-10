@@ -1,17 +1,35 @@
-import QtQuick 2.6
+/*
+    Copyright 2020, Mitch Curtis
+
+    This file is part of Slate.
+
+    Slate is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Slate is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Slate. If not, see <http://www.gnu.org/licenses/>.
+*/
+
+import QtQuick 2.12
 import QtQuick.Layouts 1.1
-import QtQuick.Controls 2.3
+import QtQuick.Controls 2.12
 
 import App 1.0
 
 Dialog {
-    id: dialog
+    id: root
     objectName: "imageSizePopup"
     title: qsTr("Choose a size for the image")
     modal: true
     dim: false
     focus: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnReleaseOutside
 
     property Project project
 
@@ -23,6 +41,8 @@ Dialog {
             widthSpinBox.contentItem.forceActiveFocus();
         }
     }
+
+    onAccepted: project.resize(widthSpinBox.value, heightSpinBox.value, smoothCheckBox.checked)
 
     contentItem: ColumnLayout {
         Item {
@@ -81,8 +101,11 @@ Dialog {
                     bottomPadding: 0
                     anchors.verticalCenter: parent.verticalCenter
 
+                    //: Keep the aspect ratio (width to height) when resizing the image.
                     ToolTip.text: qsTr("Preserve aspect ratio")
                     ToolTip.visible: hovered
+                    ToolTip.delay: UiConstants.toolTipDelay
+                    ToolTip.timeout: UiConstants.toolTipTimeout
                 }
             }
 
@@ -104,6 +127,11 @@ Dialog {
                 Layout.column: 2
 
                 ToolTip.text: qsTr("Image width in pixels")
+                ToolTip.visible: hovered
+                ToolTip.delay: UiConstants.toolTipDelay
+                ToolTip.timeout: UiConstants.toolTipTimeout
+
+                Keys.onReturnPressed: root.accept()
 
                 onValueModified: valueUpdated(value)
 
@@ -139,6 +167,11 @@ Dialog {
                 Layout.column: 2
 
                 ToolTip.text: qsTr("Image height in pixels")
+                ToolTip.visible: hovered
+                ToolTip.delay: UiConstants.toolTipDelay
+                ToolTip.timeout: UiConstants.toolTipTimeout
+
+                Keys.onReturnPressed: root.accept()
 
                 onValueModified: valueUpdated(value)
 
@@ -171,6 +204,8 @@ Dialog {
 
                 ToolTip.text: qsTr("Resize smoothly using bilinear filtering")
                 ToolTip.visible: hovered
+                ToolTip.delay: UiConstants.toolTipDelay
+                ToolTip.timeout: UiConstants.toolTipTimeout
             }
 
             Item {
@@ -181,46 +216,22 @@ Dialog {
                 Layout.fillHeight: true
             }
         }
-
-        RowLayout {
-            Button {
-                objectName: "imageSizePopupOkButton"
-                text: qsTr("OK")
-
-                onClicked: {
-                    project.resize(widthSpinBox.value, heightSpinBox.value, smoothCheckBox.checked);
-                    dialog.visible = false;
-                }
-            }
-            Button {
-                objectName: "imageSizePopupCancelButton"
-                text: qsTr("Cancel")
-
-                onClicked: dialog.visible = false
-            }
-        }
     }
 
-    // https://bugreports.qt.io/browse/QTBUG-64174
-//    footer: DialogButtonBox {
-//        Button {
-//            objectName: "imageSizePopupOkButton"
-//            text: qsTr("OK")
+    footer: DialogButtonBox {
+        Button {
+            objectName: "imageSizePopupOkButton"
+            text: qsTr("OK")
 
-//            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+        }
+        Button {
+            objectName: "imageSizePopupCancelButton"
+            text: qsTr("Cancel")
 
-//            onClicked: {
-//                project.resize(widthSpinBox.value, heightSpinBox.value, smoothCheckBox.checked);
-//                dialog.visible = false;
-//            }
-//        }
-//        Button {
-//            objectName: "imageSizePopupCancelButton"
-//            text: qsTr("Cancel")
-
-//            DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
-
-//            onClicked: dialog.visible = false
-//        }
-//    }
+            // https://bugreports.qt.io/browse/QTBUG-67168
+            // TODO: replace this with DestructiveRole when it works (closes dialog)
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+        }
+    }
 }

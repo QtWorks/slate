@@ -1,6 +1,7 @@
-import QtQuick 2.6
+import QtQuick 2.12
 import QtQuick.Layouts 1.1
-import QtQuick.Controls 2.0
+import QtQuick.Controls 2.12
+import QtQuick.Templates 2.12 as T
 
 import App 1.0
 
@@ -10,16 +11,19 @@ Page {
     id: root
     objectName: "panel"
     background: Rectangle {
-        color: Ui.CanvasColours.panelColour
+        color: Ui.Theme.panelColour
     }
 
     property bool expanded: true
-    property Popup settingsPopup: null
+    property T.Popup settingsPopup: null
+    property alias settingsPopupToolButton: settingsPopupToolButton
 
     header: RowLayout {
+        objectName: root.objectName + "Header"
         spacing: 0
 
         Label {
+            objectName: parent.objectName + "TitleLabel"
             text: root.title
             font.bold: true
 
@@ -31,6 +35,7 @@ Page {
         }
 
         ToolButton {
+            id: settingsPopupToolButton
             objectName: root.objectName + "SettingsToolButton"
             text: "\uf013"
             font.family: "FontAwesome"

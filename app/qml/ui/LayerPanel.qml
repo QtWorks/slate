@@ -1,5 +1,5 @@
 /*
-    Copyright 2018, Mitch Curtis
+    Copyright 2020, Mitch Curtis
 
     This file is part of Slate.
 
@@ -17,10 +17,10 @@
     along with Slate. If not, see <http://www.gnu.org/licenses/>.
 */
 
-import QtQuick 2.7
+import QtQuick 2.12
 import QtQuick.Layouts 1.1
-import QtQuick.Controls 2.2
-import QtQuick.Window 2.0
+import QtQuick.Controls 2.12
+import QtQuick.Window 2.12
 
 import App 1.0
 
@@ -28,15 +28,33 @@ import "." as Ui
 
 Panel {
     id: root
+    objectName: "layerPanel"
     title: qsTr("Layers")
     padding: 0
 
     property LayeredImageCanvas layeredImageCanvas
     property LayeredImageProject project
 
+    readonly property int minimumUsefulHeight: header.implicitHeight
+        // Estimate delegate height since we can't easily know what it is for all styles.
+        + 48
+        + footer.implicitHeight
+
+    UiStateSerialisation {
+        project: root.project
+        onReadyToLoad: {
+            root.expanded = root.project.uiState.value("layerPanelExpanded", true)
+            layerListView.contentY = root.project.uiState.value("layerListViewContentY", 0)
+        }
+        onReadyToSave: {
+            root.project.uiState.setValue("layerPanelExpanded", root.expanded)
+            root.project.uiState.setValue("layerListViewContentY", layerListView.contentY)
+        }
+    }
+
     ButtonGroup {
         objectName: "layerPanelButtonGroup"
-        buttons: listView.contentItem.children
+        buttons: layerListView.contentItem.children
     }
 
     contentItem: ColumnLayout {
@@ -44,109 +62,34 @@ Panel {
         spacing: 0
 
         ListView {
-            id: listView
+            id: layerListView
             objectName: "layerListView"
             boundsBehavior: ListView.StopAtBounds
+            // TODO: shouldn't need to null-check at all in this file
             visible: project && project.loaded
             clip: true
 
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            ScrollBar.vertical: ScrollBar {
-                id: verticalScrollBar
-            }
-            ScrollBar.horizontal: ScrollBar {
-                id: horizontalScrollBar
-            }
+            ScrollBar.vertical: ScrollBar {}
 
             model: LayerModel {
                 layeredImageProject: project
             }
 
-            delegate: ItemDelegate {
-                objectName: model.layer.name
-                checkable: true
-                checked: project.currentLayerIndex === index
-                width: listView.width
-                leftPadding: visibilityCheckBox.width + 18
-                focusPolicy: Qt.NoFocus
-
-                onClicked: project.currentLayerIndex = index
-                onDoubleClicked: layerNameTextField.forceActiveFocus()
-
-                CheckBox {
-                    id: visibilityCheckBox
-                    objectName: "layerVisibilityCheckBox"
-                    x: 14
-                    text: model.layer.visible ? "\uf06e" : "\uf070"
-                    font.family: "FontAwesome"
-                    focusPolicy: Qt.NoFocus
-                    indicator: null
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    onClicked: project.setLayerVisible(index, !model.layer.visible)
-                }
-
-                TextField {
-                    id: layerNameTextField
-                    objectName: "layerNameTextField"
-                    x: parent.leftPadding
-                    text: model.layer.name
-                    font.family: "FontAwesome"
-                    activeFocusOnPress: false
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.verticalCenterOffset: 6
-                    background.visible: false
-                    font.pixelSize: 12
-                    visible: false
-
-                    Keys.onEscapePressed: {
-                        text = model.layer.name;
-                        layeredImageCanvas.forceActiveFocus();
-                    }
-                    onAccepted: {
-                        project.setLayerName(index, text);
-                        layeredImageCanvas.forceActiveFocus();
-                    }
-                }
-
-                // We don't want TextField's editable cursor to be visible,
-                // so we set visible: false to disable the cursor, and instead
-                // render it via this.
-                ShaderEffectSource {
-                    sourceItem: layerNameTextField
-                    anchors.fill: layerNameTextField
-                }
-
-                // Apparently the one above only works for the top level control item,
-                // so we also need one for the background.
-                ShaderEffectSource {
-                    sourceItem: layerNameTextField.background
-                    x: layerNameTextField.x + layerNameTextField.background.x
-                    y: layerNameTextField.y + layerNameTextField.background.y
-                    width: layerNameTextField.background.width
-                    height: layerNameTextField.background.height
-                    visible: layerNameTextField.activeFocus
-                }
-
-                Rectangle {
-                    id: focusRect
-                    width: 2
-                    height: parent.height
-                    color: Ui.CanvasColours.focusColour
-                    visible: parent.checked
-                }
+            delegate: LayerDelegate {
+                width: layerListView.width
             }
         }
 
         // Necessary for when there is no loaded project so that the separator
         // doesn't go halfway up the panel.
         Item {
-            Layout.fillHeight: listView.count == 0
+            Layout.fillHeight: layerListView.count == 0
         }
 
-        MenuSeparator {
+        Ui.VerticalSeparator {
             padding: 6
             topPadding: 0
             bottomPadding: 0
@@ -171,6 +114,11 @@ Panel {
             Layout.fillHeight: true
             Layout.leftMargin: 6
 
+            ToolTip.text: qsTr("Add a new layer")
+            ToolTip.visible: hovered
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
+
             onClicked: project.addNewLayer()
         }
 
@@ -186,6 +134,11 @@ Panel {
             Layout.maximumWidth: implicitHeight
             Layout.fillWidth: true
             Layout.fillHeight: true
+
+            ToolTip.text: qsTr("Move the current layer down")
+            ToolTip.visible: hovered
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
 
             onClicked: project.moveCurrentLayerDown()
         }
@@ -203,7 +156,33 @@ Panel {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
+            ToolTip.text: qsTr("Move the current layer up")
+            ToolTip.visible: hovered
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
+
             onClicked: project.moveCurrentLayerUp()
+        }
+
+        Button {
+            objectName: "duplicateLayerButton"
+            text: "\uf24d"
+            font.family: "FontAwesome"
+            flat: true
+            focusPolicy: Qt.NoFocus
+            hoverEnabled: true
+            enabled: project && project.currentLayerIndex >= 0 && project.currentLayerIndex < project.layerCount
+
+            Layout.maximumWidth: implicitHeight
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            ToolTip.text: qsTr("Duplicate the current layer")
+            ToolTip.visible: hovered
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
+
+            onClicked: project.duplicateCurrentLayer()
         }
 
         Item {
@@ -224,6 +203,11 @@ Panel {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.rightMargin: 6
+
+            ToolTip.text: qsTr("Delete the current layer")
+            ToolTip.visible: hovered
+            ToolTip.delay: UiConstants.toolTipDelay
+            ToolTip.timeout: UiConstants.toolTipTimeout
 
             onClicked: project.deleteCurrentLayer()
         }

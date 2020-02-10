@@ -1,4 +1,4 @@
-import QtQuick 2.6
+import QtQuick 2.12
 
 import App 1.0
 
@@ -6,205 +6,229 @@ Item {
     objectName: "shortcuts"
 
     property var window
-    property ProjectManager projectManager
     property Project project: projectManager.project
     property int projectType: project ? project.type : 0
     readonly property bool isImageProjectType: projectType === Project.ImageType || projectType === Project.LayeredImageType
     property Item canvasContainer
     property ImageCanvas canvas
-    readonly property bool canvasHasActiveFocus: canvas ? canvas.activeFocus : false
+    readonly property bool canvasHasActiveFocus: canvas && canvas.activeFocus
+    property SaveChangesDialog saveChangesDialog
 
     Shortcut {
         sequence: settings.quitShortcut
-        onActivated: Qt.quit()
+        onActivated: saveChangesDialog.doIfChangesSavedOrDiscarded(function() { Qt.quit() })
     }
 
     Shortcut {
         objectName: "newShortcut"
         sequence: settings.newShortcut
-        onActivated: doIfChangesDiscarded(function() { newProjectPopup.open() }, true)
-        enabled: canvasHasActiveFocus
+        // There could be no project open, so the canvas won't exist and hence its container will have focus.
+        enabled: canvasHasActiveFocus || canvasContainer.activeFocus
+        onActivated: saveChangesDialog.doIfChangesSavedOrDiscarded(function() { newProjectPopup.open() }, true)
     }
 
     Shortcut {
         objectName: "openShortcut"
         sequence: settings.openShortcut
-        onActivated: doIfChangesDiscarded(function() { openProjectDialog.open() }, true)
-        // There could be no project open, so the canvas won't exist and hence its container will have focus.
         enabled: canvasHasActiveFocus || canvasContainer.activeFocus
+        onActivated: saveChangesDialog.doIfChangesSavedOrDiscarded(function() { openProjectDialog.open() }, true)
     }
 
     Shortcut {
         objectName: "saveShortcut"
         sequence: settings.saveShortcut
-        onActivated: projectManager.saveOrSaveAs()
         enabled: canvasHasActiveFocus && project && project.canSave
+        onActivated: saveOrSaveAs()
+    }
+
+    Shortcut {
+        objectName: "saveAsShortcut"
+        sequence: settings.saveAsShortcut
+        enabled: canvasHasActiveFocus && project
+        onActivated: saveAsDialog.open()
     }
 
     Shortcut {
         objectName: "exportShortcut"
         sequence: settings.exportShortcut
-        onActivated: exportDialog.open()
         enabled: project && project.loaded && projectType === Project.LayeredImageType
+        onActivated: exportDialog.open()
     }
 
     Shortcut {
         objectName: "closeShortcut"
         sequence: settings.closeShortcut
-        onActivated: doIfChangesDiscarded(function() { project.close() })
         enabled: canvasHasActiveFocus
+        onActivated: saveChangesDialog.doIfChangesSavedOrDiscarded(function() { project.close() })
     }
 
     Shortcut {
         objectName: "revertShortcut"
         sequence: settings.revertShortcut
-        onActivated: project.revert()
         enabled: canvasHasActiveFocus
+        onActivated: project.revert()
     }
 
     Shortcut {
         objectName: "undoShortcut"
         sequence: settings.undoShortcut
-        onActivated: {
-            // A selection should be cleared when Ctrl + Z is pressed, as this is
-            // what mspaint does. However, it doesn't make sense for a selection
-            // to have its own undo command (as it's cleared after the first undo
-            // on selection moves).
-            // It's also not even possible to use the undo framework to implement
-            // support for mspaint's undo behaviour, because in order for the commands
-            // to be mergeable, a macro needs to be used, and when a macro is being composed,
-            // it's not even *possible* to undo/redo.
-            // So, we let ImageCanvas intercept the undo shortcut
-            // to handle this special case ourselves. This has the advantage of
-            // being faster by not using an event filter..
-            // .. and I couldn't manage to override shortcuts using an event filter.
-            if (!canvas.overrideShortcut(sequence))
-                project.undoStack.undo()
-        }
-        enabled: canvasHasActiveFocus && project && project.undoStack.canUndo
+        // This is a bit hacky, but we want two things:
+        // #1: the user to be able to undo selection modifications before confirming them, as mspaint does
+        // #2: an undo command for selection modifications should only be pushed onto the stack when the
+        //     selection is confirmed (or "undone"; see ImageCanvas::interceptUndo()).
+        // Since these conflict with each other, we cheat a little bit and allow
+        // undos as long as the selection contents have been modified have to add the || canvas.hasModifiedSelection.
+        enabled: canvasHasActiveFocus && project && (project.undoStack.canUndo || canvas.hasModifiedSelection)
+        onActivated: canvas.undo()
     }
 
     Shortcut {
         objectName: "redoShortcut"
         sequence: settings.redoShortcut
-        onActivated: project.undoStack.redo()
         enabled: canvasHasActiveFocus && project && project.undoStack.canRedo
+        onActivated: project.undoStack.redo()
     }
 
     Shortcut {
         objectName: "copyShortcut"
         sequence: StandardKey.Copy
-        onActivated: canvas.copySelection()
         enabled: isImageProjectType && canvasHasActiveFocus && canvas.hasSelection
+        onActivated: canvas.copySelection()
     }
 
     Shortcut {
         objectName: "pasteShortcut"
         sequence: StandardKey.Paste
-        onActivated: canvas.paste()
         enabled: isImageProjectType && canvasHasActiveFocus
+        onActivated: canvas.paste()
+    }
+
+    Shortcut {
+        id: primaryDeleteShortcut
+        objectName: "deleteShortcut"
+        sequence: StandardKey.Delete
+        enabled: isImageProjectType && canvasHasActiveFocus
+        onActivated: canvas.deleteSelectionOrContents()
+    }
+
+    // StandardKey.Delete doesn't work on a MacBook Pro keyboard;
+    // Qt uses Fn+Delete instead, and "Backspace" is the only thing that seems to work,
+    // so we need two shortcuts. See: https://bugreports.qt.io/browse/QTBUG-67430
+    Shortcut {
+        objectName: "deleteViaBackspaceShortcut"
+        sequence: "Backspace"
+        enabled: primaryDeleteShortcut.enabled
+        onActivated: canvas.deleteSelectionOrContents()
     }
 
     Shortcut {
         objectName: "selectAllShortcut"
         sequence: StandardKey.SelectAll
-        onActivated: canvas.selectAll()
         enabled: isImageProjectType && canvasHasActiveFocus
+        onActivated: canvas.selectAll()
     }
 
     Shortcut {
         objectName: "flipHorizontallyShortcut"
         sequence: settings.flipHorizontallyShortcut
-        onActivated: canvas.flipSelection(Qt.Horizontal)
         enabled: isImageProjectType && canvasHasActiveFocus && canvas.hasSelection
+        onActivated: canvas.flipSelection(Qt.Horizontal)
     }
 
     Shortcut {
         objectName: "flipVerticallyShortcut"
         sequence: settings.flipVerticallyShortcut
-        onActivated: canvas.flipSelection(Qt.Vertical)
         enabled: isImageProjectType && canvasHasActiveFocus && canvas.hasSelection
+        onActivated: canvas.flipSelection(Qt.Vertical)
     }
 
     Shortcut {
         objectName: "resizeCanvasShortcut"
         sequence: settings.resizeCanvasShortcut
-        onActivated: canvasSizePopup.open()
         enabled: canvasHasActiveFocus && canvas.hasSelection
+        onActivated: canvasSizePopup.open()
     }
 
     Shortcut {
         objectName: "resizeImageShortcut"
         sequence: settings.resizeImageShortcut
-        onActivated: imageSizePopup.open()
         enabled: isImageProjectType && canvasHasActiveFocus && canvas.hasSelection
+        onActivated: imageSizePopup.open()
+    }
+
+    Shortcut {
+        objectName: "moveContentsShortcut"
+        sequence: settings.moveContentsShortcut
+        enabled: projectType === Project.LayeredImageType && canvasHasActiveFocus
+        onActivated: moveContentsDialog.open()
     }
 
     Shortcut {
         objectName: "gridVisibleShortcut"
         sequence: settings.gridVisibleShortcut
-        onActivated: settings.gridVisible = !settings.gridVisible
+        enabled: projectType === Project.TilesetType
+        onActivated: canvas.gridVisible = !canvas.gridVisible
     }
 
     Shortcut {
         objectName: "rulersVisibleShortcut"
         sequence: settings.rulersVisibleShortcut
-        onActivated: settings.rulersVisible = !settings.rulersVisible
+        onActivated: canvas.rulersVisible = !canvas.rulersVisible
     }
 
     Shortcut {
         objectName: "guidesVisibleShortcut"
         sequence: settings.guidesVisibleShortcut
-        onActivated: settings.guidesVisible = !settings.guidesVisible
+        onActivated: canvas.guidesVisible = !canvas.guidesVisible
     }
 
     Shortcut {
         objectName: "splitScreenShortcut"
         sequence: settings.splitScreenShortcut
-        onActivated: canvas.splitScreen = !canvas.splitScreen
         enabled: canvasHasActiveFocus
+        onActivated: canvas.splitScreen = !canvas.splitScreen
     }
 
     Shortcut {
         objectName: "splitterLockedShortcut"
         sequence: settings.splitterLockedShortcut
-        onActivated: canvas.splitter.enabled = !canvas.splitter.enabled
         enabled: canvasHasActiveFocus
+        onActivated: canvas.splitter.enabled = !canvas.splitter.enabled
     }
 
     Shortcut {
         objectName: "centreShortcut"
         sequence: settings.centreShortcut
-        onActivated: canvas.centreView()
         enabled: canvasHasActiveFocus
+        onActivated: canvas.centreView()
     }
 
     Shortcut {
         objectName: "zoomInShortcut"
         sequence: settings.zoomInShortcut
-        onActivated: canvas.zoomIn()
         enabled: canvasHasActiveFocus
+        onActivated: canvas.zoomIn()
     }
 
     Shortcut {
         objectName: "zoomOutShortcut"
         sequence: settings.zoomOutShortcut
-        onActivated: canvas.zoomOut()
         enabled: canvasHasActiveFocus
+        onActivated: canvas.zoomOut()
     }
 
     Shortcut {
         objectName: "animationPlaybackShortcut"
         sequence: settings.animationPlaybackShortcut
-        onActivated: project.usingAnimation = !project.usingAnimation
         enabled:  isImageProjectType && canvasHasActiveFocus
+        onActivated: project.usingAnimation = !project.usingAnimation
     }
 
     Shortcut {
         objectName: "optionsShortcut"
         sequence: settings.optionsShortcut
-        onActivated: optionsDialog.open()
         enabled: canvasHasActiveFocus
+        onActivated: optionsDialog.open()
     }
 
     Shortcut {
@@ -222,7 +246,13 @@ Item {
     Shortcut {
         objectName: "fillToolShortcut"
         sequence: settings.fillToolShortcut
-        onActivated: canvas.tool = ImageCanvas.FillTool
+        onActivated: canvas.tool = canvas.lastFillToolUsed
+    }
+
+    Shortcut {
+        objectName: "cycleFillToolsShortcut"
+        sequence: "Shift+" + settings.fillToolShortcut
+        onActivated: canvas.cycleFillTools()
     }
 
     Shortcut {
@@ -234,7 +264,15 @@ Item {
     Shortcut {
         objectName: "selectionToolShortcut"
         sequence: settings.selectionToolShortcut
+        enabled: isImageProjectType
         onActivated: canvas.tool = ImageCanvas.SelectionTool
+    }
+
+    Shortcut {
+        objectName: "noteToolShortcut"
+        sequence: settings.noteToolShortcut
+        enabled: isImageProjectType
+        onActivated: canvas.tool = ImageCanvas.NoteTool
     }
 
     Shortcut {
@@ -282,5 +320,11 @@ Item {
         sequence: settings.swatchDownShortcut
         enabled: projectType === Project.TilesetType
         onActivated: canvas.swatchDown()
+    }
+
+    Shortcut {
+        objectName: "fullScreenToggleShortcut"
+        sequence: settings.fullScreenToggleShortcut
+        onActivated: toggleFullScreen()
     }
 }

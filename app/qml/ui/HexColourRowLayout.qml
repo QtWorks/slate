@@ -1,11 +1,12 @@
-import QtQuick 2.0
-import QtQuick.Controls 2.0
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 import QtQuick.Layouts 1.1
 
 import App 1.0
 
 RowLayout {
     id: root
+    objectName: "HexColourRowLayout"
 
     property ImageCanvas canvas
     property alias colourSelector: selector

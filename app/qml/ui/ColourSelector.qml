@@ -1,10 +1,11 @@
-import QtQuick 2.0
-import QtQuick.Controls 2.0
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 
 import App 1.0
 
 Item {
     id: root
+    objectName: "colourSelector"
     implicitWidth: penForegroundColourToolButton.width * 1.5
     implicitHeight: penForegroundColourToolButton.height * 1.5
 
@@ -29,8 +30,8 @@ Item {
 
         ToolTip.text: qsTr("Set the background colour")
         ToolTip.visible: hovered
-        ToolTip.delay: toolTipDelay
-        ToolTip.timeout: toolTipTimeout
+        ToolTip.delay: UiConstants.toolTipDelay
+        ToolTip.timeout: UiConstants.toolTipTimeout
     }
 
     ColourButton {
@@ -43,7 +44,7 @@ Item {
 
         ToolTip.text: qsTr("Set the foreground colour")
         ToolTip.visible: hovered
-        ToolTip.delay: toolTipDelay
-        ToolTip.timeout: toolTipTimeout
+        ToolTip.delay: UiConstants.toolTipDelay
+        ToolTip.timeout: UiConstants.toolTipTimeout
     }
 }

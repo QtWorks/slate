@@ -1,5 +1,5 @@
 /*
-    Copyright 2018, Mitch Curtis
+    Copyright 2020, Mitch Curtis
 
     This file is part of Slate.
 
@@ -17,8 +17,8 @@
     along with Slate. If not, see <http://www.gnu.org/licenses/>.
 */
 
-import QtQuick 2.9
-import QtQuick.Controls 2.1
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 import QtQuick.Layouts 1.3
 
 import App 1.0
@@ -27,7 +27,6 @@ Item {
     id: canvasContainer
     objectName: "canvasContainer"
 
-    property ProjectManager projectManager
     property Project project: projectManager.project
     property ImageCanvas canvas: loader.item
     property var checkedToolButton
@@ -37,7 +36,8 @@ Item {
         objectName: "canvasContainerLoader"
         source: project && project.typeString.length > 0 ? project.typeString + "Canvas.qml" : ""
         focus: true
-        anchors.fill: parent
+        width: parent.width
+        height: parent.height - statusBar.height
 
         property QtObject args: QtObject {
             // We want this property to be updated before "source" above, as we need
@@ -53,7 +53,7 @@ Item {
         y: canvas ? canvas.cursorY - height / 2 : 0
         z: 1
         colour: canvas ? canvas.invertedCursorPixelColour : defaultColour
-        visible: canvas && canvas.hasBlankCursor && !canvas.useIconCursor && canvas.useCrosshairCursor
+        visible: canvas && canvas.hasBlankCursor && !canvas.useIconCursor && (canvas.useCrosshairCursor || settings.alwaysShowCrosshair)
     }
 
     RectangularCursor {
@@ -72,15 +72,15 @@ Item {
         y: canvas ? canvas.cursorY - height + 3 : 0
         z: 1
         visible: canvas && canvas.hasBlankCursor && canvas.useIconCursor
-        text: visible && checkedToolButton && checkedToolButton.hasOwnProperty("iconText") ? checkedToolButton.iconText : ""
+        text: visible && checkedToolButton ? checkedToolButton.text : ""
         font.family: "FontAwesome"
         color: "#ccc"
     }
 
     StatusBar {
         id: statusBar
-        z: 1
-        width: parent.width
+        parent: ApplicationWindow.window.contentItem
+        width: canvasContainer.width
         anchors.bottom: parent.bottom
         project: canvasContainer.project
         canvas: canvasContainer.canvas
